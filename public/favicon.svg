@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="All in 1 AI Model">
+  <defs>
+    <linearGradient id="bt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="55%" stop-color="#A855F7"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="48" height="48" rx="12" ry="12" fill="url(#bt)"/>
+  <rect x="0" y="0" width="48" height="48" rx="12" ry="12" fill="url(#bg)"/>
+  <g fill="#FFFFFF">
+    <path d="M14.5 16 A 9.5 9.5 0 0 1 33.5 16" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="24" cy="16" r="4"/>
+    <rect x="21.5" y="18.5" width="5" height="19" rx="2.2"/>
+    <rect x="16.5" y="35.5" width="15" height="4" rx="1.6"/>
+    <rect x="23.2" y="5.5" width="1.6" height="4.2" rx="0.8"/>
+    <rect x="10.5" y="15.2" width="4.2" height="1.6" rx="0.8"/>
+    <rect x="33.3" y="15.2" width="4.2" height="1.6" rx="0.8"/>
+    <path d="M12 8 l1.2 2.4 l2.4 1.2 l-2.4 1.2 l-1.2 2.4 l-1.2 -2.4 l-2.4 -1.2 l2.4 -1.2 z"/>
+    <path d="M37.5 9.5 l0.8 1.6 l1.6 0.8 l-1.6 0.8 l-0.8 1.6 l-0.8 -1.6 l-1.6 -0.8 l1.6 -0.8 z" opacity="0.9"/>
+  </g>
+  <circle cx="22.5" cy="14.5" r="1.1" fill="#FFFFFF" opacity="0.7"/>
+</svg>
