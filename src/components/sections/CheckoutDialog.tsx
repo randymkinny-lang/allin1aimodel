@@ -1,6 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+HELLO_TESTimport React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,11 +10,22 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import type { Tier } from '@/data/tiers';
 import { Loader2, CheckCircle2, Crown } from 'lucide-react';
 
-const STRIPE_ACCOUNT_ID = 'acct_1TOXHhQbUzV3pKdK';
-const stripePromise = loadStripe(
-  'pk_live_51OJhJBHdGQpsHqInIzu7c6PzGPSH0yImD4xfpofvxvFZs0VFhPRXZCyEgYkkhOtBOXFWvssYASs851mflwQvjnrl00T6DbUwWZ',
-  { stripeAccount: STRIPE_ACCOUNT_ID },
-);
+// ============================================================
+// PAYPAL CONFIGURATION - Fill these in from your PayPal account
+// ============================================================
+// 1. Your PayPal Business email (from paypal.com account settings)
+const PAYPAL_BUSINESS_EMAIL = import.meta.env.VITE_PAYPAL_BUSINESS_EMAIL ?? '';
+
+// 2. PayPal Subscription Plan IDs (create at paypal.com/billing/plans)
+//    After creating a plan, paste its ID here (format: P-XXXXXXXXXXXXXXXXXXXXXXXX)
+const PAYPAL_PLAN_IDS: Record<string, string> = {
+  starter: import.meta.env.VITE_PAYPAL_PLAN_STARTER ?? '',
+  creator: import.meta.env.VITE_PAYPAL_PLAN_CREATOR ?? '',
+  agency: import.meta.env.VITE_PAYPAL_PLAN_AGENCY ?? '',
+};
+
+// 3. Lifetime plan one-time price
+const LIFETIME_PRICE = 997;
 
 interface Props {
   open: boolean;
@@ -24,278 +33,193 @@ interface Props {
   tier: Tier | null;
 }
 
-type Step = 'email' | 'payment' | 'success';
+type Step = 'email' | 'success';
 
-const PaymentForm: React.FC<{
-  tier: Tier;
-  customerId: string;
-  email: string;
-  mode: 'subscription' | 'one-time';
-  onSuccess: () => void;
-  onCancel: () => void;
-}> = ({ tier, customerId, email, mode, onSuccess, onCancel }) => {
-  const stripe = useStripe();
-  const elements = useElements();
-  const { user, getIdentityId } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-    setLoading(true);
-    setError(null);
-
-    const identityId = user?.id ?? getIdentityId();
-
-    try {
-      if (mode === 'subscription') {
-        const { error: setupError, setupIntent } = await stripe.confirmSetup({
-          elements,
-          confirmParams: { return_url: window.location.origin },
-          redirect: 'if_required',
-        });
-        if (setupError) throw new Error(setupError.message);
-        if (setupIntent?.status !== 'succeeded') throw new Error('Payment setup did not complete');
-
-        // CRITICAL: pass the confirmed payment method so the subscription has a
-        // default card to charge. Entitlement is persisted server-side (RLS-safe).
-        const { data, error: fnErr } = await supabase.functions.invoke('manage-subscription', {
-          body: {
-            action: 'activate-subscription',
-            customerId,
-            priceId: tier.priceId,
-            paymentMethodId: setupIntent.payment_method,
-            tierId: tier.id,
-            tierName: tier.name,
-            generations: tier.generations,
-            email,
-            identityId,
-          },
-        });
-        if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Failed to activate');
-      } else {
-        const { error: payErr, paymentIntent } = await stripe.confirmPayment({
-          elements,
-          confirmParams: { return_url: window.location.origin },
-          redirect: 'if_required',
-        });
-        if (payErr) throw new Error(payErr.message);
-        if (paymentIntent?.status !== 'succeeded') throw new Error('Payment did not complete');
-
-        // Persist the lifetime entitlement server-side (RLS-safe).
-        const { data, error: fnErr } = await supabase.functions.invoke('manage-subscription', {
-          body: {
-            action: 'persist-entitlement',
-            identityId,
-            tierId: tier.id,
-            tierName: tier.name,
-            generations: tier.generations,
-            isLifetime: tier.id === 'lifetime',
-            customerId,
-            paymentIntentId: paymentIntent.id,
-            email,
-          },
-        });
-        if (fnErr || data?.error) {
-          // Payment already succeeded — surface a soft warning but continue.
-          console.error('Persist entitlement failed:', data?.error || fnErr?.message);
-        }
-      }
-      onSuccess();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement options={{ layout: 'tabs' }} />
-      {error && (
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-3">
-          {error}
-        </div>
-      )}
-      <div className="flex gap-3 pt-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={loading} className="flex-1">
-          Back
-        </Button>
-        <Button
-          type="submit"
-          disabled={!stripe || loading}
-          className="flex-1 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 font-semibold"
-        >
-          {loading ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
-          ) : mode === 'subscription' ? (
-            `Subscribe · ${tier.priceLabel}/mo`
-          ) : (
-            `Pay ${tier.priceLabel}`
-          )}
-        </Button>
-      </div>
-      <p className="text-[11px] text-slate-500 text-center">
-        Secured by Stripe · Your card info never touches our servers
-      </p>
-    </form>
-  );
-};
-
-
-const CheckoutDialog: React.FC<Props> = ({ open, onOpenChange, tier }) => {
+export function CheckoutDialog({ open, onOpenChange, tier }: Props) {
   const { user } = useAuth();
-  const { refresh } = useSubscription();
+  const { refreshSubscription } = useSubscription();
   const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'subscription' | 'one-time'>('subscription');
+  const [email, setEmail] = useState(user?.email ?? '');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setStep('email');
       setEmail(user?.email ?? '');
-      setName((user?.user_metadata as { full_name?: string } | undefined)?.full_name ?? '');
-      setClientSecret(null);
-      setCustomerId(null);
-      setError(null);
     }
   }, [open, user]);
+
+  const buildPayPalUrl = (): string => {
+    if (!tier || !PAYPAL_BUSINESS_EMAIL) return '';
+    const origin = window.location.origin;
+    const returnUrl = encodeURIComponent(origin + '/?payment=success&plan=' + tier.id);
+    const cancelUrl = encodeURIComponent(origin + '/?payment=cancelled');
+    const itemName = encodeURIComponent('All in 1 AI Model - ' + tier.name + ' Plan');
+
+    if (tier.id === 'lifetime') {
+      return 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick' +
+        '&business=' + encodeURIComponent(PAYPAL_BUSINESS_EMAIL) +
+        '&item_name=' + itemName +
+        '&amount=' + LIFETIME_PRICE +
+        '&currency_code=USD' +
+        '&return=' + returnUrl +
+        '&cancel_return=' + cancelUrl +
+        '&no_note=1';
+    }
+
+    const planId = PAYPAL_PLAN_IDS[tier.id ?? ''];
+    if (planId) {
+      return 'https://www.paypal.com/webapps/billing/plans/subscribe' +
+        '?plan_id=' + planId +
+        '&custom_id=' + encodeURIComponent(user?.id ?? email) +
+        '&return_url=' + returnUrl +
+        '&cancel_url=' + cancelUrl;
+    }
+
+    // Fallback: standard recurring payment button
+    const amount = tier.price ?? 29;
+    return 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick-subscriptions' +
+      '&business=' + encodeURIComponent(PAYPAL_BUSINESS_EMAIL) +
+      '&item_name=' + itemName +
+      '&a3=' + amount +
+      '&p3=1&t3=M&src=1&sra=1' +
+      '&currency_code=USD' +
+      '&return=' + returnUrl +
+      '&cancel_return=' + cancelUrl +
+      '&no_note=1';
+  };
+
+  const handleContinueToPayPal = async () => {
+    if (!email || !tier) return;
+    setLoading(true);
+
+    // Log checkout attempt (non-fatal)
+    try {
+      await supabase.from('checkout_sessions').upsert({
+        user_id: user?.id ?? null,
+        email,
+        tier_id: tier.id,
+        status: 'pending',
+        provider: 'paypal',
+        created_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,tier_id' });
+    } catch (_) { /* ignore */ }
+
+    const paypalUrl = buildPayPalUrl();
+    setLoading(false);
+
+    if (!paypalUrl) {
+      toast({
+        title: 'Payment not configured',
+        description: 'Please contact support to complete your purchase.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    window.open(paypalUrl, '_blank', 'noopener,noreferrer');
+    setStep('success');
+  };
+
+  const handleDone = async () => {
+    await refreshSubscription();
+    onOpenChange(false);
+    toast({
+      title: 'Payment submitted!',
+      description: 'Your plan will activate once PayPal confirms the payment. Check your email for a receipt.',
+    });
+  };
 
   if (!tier) return null;
 
   const isLifetime = tier.id === 'lifetime';
-
-  const startCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) return;
-    setLoading(true);
-    setError(null);
-
-    // MANDATORY: add this email to the project owner's CRM contact list.
-    // Fire-and-forget so it never blocks the payment flow.
-    void fetch('https://famous.ai/api/crm/69e42d4d86df19fff1064166/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        name: name || undefined,
-        source: 'checkout',
-        tags: ['newsletter', 'checkout', tier.id],
-      }),
-    }).catch(() => {});
-
-    try {
-      const action = isLifetime ? 'create-payment-intent' : 'create-setup-intent';
-      const payload = isLifetime
-        ? { action, email, name, amount: tier.price * 100, tierId: tier.id }
-        : { action, email, name, tierId: tier.id, priceId: tier.priceId };
-
-      const { data, error: fnErr } = await supabase.functions.invoke('manage-subscription', {
-        body: payload,
-      });
-      if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Failed to start checkout');
-
-      setClientSecret(data.clientSecret);
-      setCustomerId(data.customerId);
-      setMode(data.mode);
-      setStep('payment');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const handleSuccess = async () => {
-    await refresh();
-    setStep('success');
-    toast({
-      title: `${tier.name} activated!`,
-      description: `You now have access to all ${tier.name} features.`,
-    });
-  };
+  const priceLabel = isLifetime ? '$' + LIFETIME_PRICE + ' one-time' : '$' + (tier.price ?? 29) + '/month';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-slate-950 border-white/10 text-white">
+      <DialogContent className="sm:max-w-md bg-gray-900 border-gray-700 text-white">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Crown className="h-5 w-5 text-amber-400" />
-            {step === 'success' ? 'Welcome aboard!' : `Subscribe · ${tier.name}`}
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <Crown className="w-5 h-5 text-yellow-400" />
+            Upgrade to {tier.name}
           </DialogTitle>
-          <DialogDescription className="text-slate-400">
-            {step === 'success'
-              ? `Your ${tier.name} plan is now active.`
-              : isLifetime
-                ? `One-time payment of ${tier.priceLabel} — unlock full ownership.`
-                : `${tier.priceLabel}/month · ${tier.generations.toLocaleString()} generations`}
+          <DialogDescription className="text-gray-400">
+            {step === 'email'
+              ? 'Redirects to PayPal for secure payment.'
+              : 'Complete your payment in the PayPal window.'}
           </DialogDescription>
         </DialogHeader>
 
         {step === 'email' && (
-          <form onSubmit={startCheckout} className="space-y-4">
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300 space-y-1">
-              {tier.features.slice(0, 4).map((f) => (
-                <div key={f} className="flex gap-2"><CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" /><span>{f}</span></div>
-              ))}
+          <div className="space-y-4 pt-2">
+            <div className="bg-gray-800 rounded-lg p-4 space-y-2 border border-gray-700">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Plan</span>
+                <span className="font-semibold">{tier.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Price</span>
+                <span className="font-semibold text-green-400">{priceLabel}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Payment</span>
+                <span className="font-semibold text-blue-400">PayPal</span>
+              </div>
             </div>
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-white/5 border-white/10" placeholder="you@example.com" />
-            </div>
-            <div>
-              <Label htmlFor="name">Name (optional)</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="bg-white/5 border-white/10" />
-            </div>
-            {error && <div className="text-sm text-red-400">{error}</div>}
-            <Button type="submit" disabled={loading || !email} className="w-full bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 font-semibold">
-              {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Loading...</> : 'Continue to Payment'}
-            </Button>
-          </form>
-        )}
 
-        {step === 'payment' && clientSecret && customerId && (
-          <Elements
-            stripe={stripePromise}
-            options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: '#fbbf24' } } }}
-          >
-            <PaymentForm
-              tier={tier}
-              customerId={customerId}
-              email={email}
-              mode={mode}
-              onSuccess={handleSuccess}
-              onCancel={() => setStep('email')}
-            />
-          </Elements>
+            <div className="space-y-1">
+              <Label htmlFor="checkout-email" className="text-sm text-gray-300">Your email</Label>
+              <Input
+                id="checkout-email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="bg-gray-800 border-gray-600 text-white placeholder-gray-500"
+                placeholder="you@example.com"
+              />
+            </div>
+
+            <Button
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+              onClick={handleContinueToPayPal}
+              disabled={loading || !email.includes('@')}
+            >
+              {loading
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Preparing...</>
+                : <>Pay with PayPal &rarr;</>
+              }
+            </Button>
+
+            <p className="text-xs text-center text-gray-500">
+              Secured by PayPal · No card required · Cancel anytime
+            </p>
+          </div>
         )}
 
         {step === 'success' && (
-          <div className="text-center py-4 space-y-4">
-            <div className="mx-auto h-16 w-16 rounded-full bg-amber-400/10 border border-amber-400/40 flex items-center justify-center">
-              <CheckCircle2 className="h-8 w-8 text-amber-400" />
-            </div>
+          <div className="space-y-4 pt-2 text-center">
+            <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto" />
             <div>
-              <div className="font-semibold">{tier.name} plan active</div>
-              <div className="text-sm text-slate-400">
-                {isLifetime ? 'Unlimited generations unlocked' : `${tier.generations.toLocaleString()} generations per month`}
-              </div>
+              <p className="text-lg font-semibold">PayPal window opened!</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Complete your payment there. Your plan activates within minutes.
+              </p>
             </div>
-            <Button onClick={() => onOpenChange(false)} className="w-full bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 font-semibold">
-              Start Creating
-            </Button>
+            <div className="bg-gray-800 rounded-lg p-3 text-sm text-left text-gray-300 space-y-1">
+              <p>✓ Check <strong className="text-white">{email}</strong> for a PayPal receipt</p>
+              <p>✓ Your plan activates automatically</p>
+              <p>✓ Manage your subscription at paypal.com</p>
+            </div>
+            <Button className="w-full" onClick={handleDone}>Done</Button>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-300 underline"
+              onClick={handleContinueToPayPal}
+            >
+              Reopen PayPal window
+            </button>
           </div>
         )}
       </DialogContent>
     </Dialog>
   );
-};
-
-export default CheckoutDialog;
+    }
