@@ -223,3 +223,5 @@ export function CheckoutDialog({ open, onOpenChange, tier }: Props) {
     </Dialog>
   );
     }
+
+export default CheckoutDialog;
